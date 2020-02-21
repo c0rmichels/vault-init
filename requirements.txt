@@ -1,0 +1,3 @@
+python-json-logger
+kubernetes
+hvac

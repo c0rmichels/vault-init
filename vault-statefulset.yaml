@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault
+spec:
+  clusterIP: None
+  ports:
+    - name: http
+      port: 8200
+    - name: server
+      port: 8201
+  selector:
+    app: vault
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vault
+  labels:
+    app: vault
+spec:
+  serviceName: "vault"
+  selector:
+    matchLabels:
+      app: vault
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: vault
+    spec:
+      containers:
+        - name: vault-init
+          image: cormichels/vault-init:0.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CHECK_INTERVAL
+              value: "10"
+            - name: K8S_NAMESPACE
+              valueFrom:
+                fieldRef:
+                    fieldPath: metadata.namespace
+            - name: K8S_SECRET_PREFIX
+              value: smaropts-vault-
+        - name: vault
+          image: "vault:1.3.1"
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: "status.podIP"
+            - name: "VAULT_API_ADDR"
+              valueFrom:
+                configMapKeyRef:
+                  name: vault
+                  key: api-addr
+          args:
+            - "server"
+            - "-config=/etc/vault/config/vault.hcl"
+          ports:
+            - name: http
+              containerPort: 8200
+              protocol: "TCP"
+            - name: server
+              containerPort: 8201
+              protocol: "TCP"
+          readinessProbe:
+            httpGet:
+              path: "/v1/sys/health?standbyok=true"
+              port: 8200
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+          securityContext:
+            capabilities:
+              add:
+                - IPC_LOCK
+          volumeMounts:
+            - name: vault-config
+              mountPath: /etc/vault/config
+            - name: vault-tls
+              mountPath: /etc/vault/tls
+      volumes:
+        - name: vault-config
+          configMap:
+            name: vault
+        - name: vault-tls
+          secret:
+            secretName: vault
